@@ -83,14 +83,16 @@
                 document.getElementById('status').innerText = data.status === "finished" ? "Winner: " + data.winner : (game.turn() === 'w' ? "White's Turn" : "Black's Turn");
             }
         });
-
-        board = Chessboard('myBoard', {
+        var config = {
             draggable: true,
             position: 'start',
             orientation: playerColor === 'black' ? 'black' : 'white',
+            pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png', 
             onDragStart: onDragStart,
             onDrop: onDrop,
             onSnapEnd: onSnapEnd
+        };
+        board = Chessboard('myBoard', config);
         });
     </script>
 </body>
