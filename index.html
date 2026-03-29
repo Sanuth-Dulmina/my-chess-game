@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tournament Chess Game</title>
+    <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #2c3e50; color: white; }
+        #myBoard { width: 90vw; max-width: 400px; margin-bottom: 20px; }
+        .info { padding: 10px; background: rgba(0,0,0,0.5); border-radius: 8px; text-align: center; }
+        #status { font-weight: bold; color: #f1c40f; }
+    </style>
+</head>
+<body>
+
+    <div id="myBoard"></div>
+    <div class="info">
+        <p>Game Status: <span id="status">Loading...</span></p>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+
+    <script>
+        // 1. --- මෙතනට උඹේ FIREBASE CONFIG එක දාපන් ---
+        const firebaseConfig = {
+            apiKey: "AIza...",
+            authDomain: "your-project.firebaseapp.com",
+            databaseURL: "https://your-project-rtdb.firebaseio.com",
+            projectId: "your-project",
+            storageBucket: "your-project.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "1:12345:web:abcde"
+        };
+        
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        // 2. URL එකෙන් Game ID එක සහ Player Color එක ගන්නවා
+        const urlParams = new URLSearchParams(window.location.search);
+        const gameId = urlParams.get('gameId'); // FlutterFlow එකෙන් එවන ID එක
+        const playerColor = urlParams.get('color'); // 'white' හෝ 'black'
+
+        var board = null;
+        var game = new Chess();
+        var gameRef = db.ref('games/' + gameId);
+
+        // කෑලි අදින්න පුළුවන්ද බලන logic එක
+        function onDragStart (source, piece, position, orientation) {
+            if (game.game_over()) return false;
+            if ((playerColor === 'white' && piece.search(/^b/) !== -1) ||
+                (playerColor === 'black' && piece.search(/^w/) !== -1) ||
+                (game.turn() === 'w' && playerColor === 'black') ||
+                (game.turn() === 'b' && playerColor === 'white')) {
+                return false;
+            }
+        }
+
+        // කෑල්ලක් ඇදලා ඉවර වුණාම Firebase update කරනවා
+        function onDrop (source, target) {
+            var move = game.move({ from: source, to: target, promotion: 'q' });
+            if (move === null) return 'snapback';
+            
+            gameRef.update({
+                fen: game.fen(),
+                turn: game.turn()
+            });
+
+            // දිනුම්දැයි බලනවා
+            if (game.in_checkmate() || game.in_draw()) {
+                let winner = game.in_checkmate() ? playerColor : 'draw';
+                gameRef.update({ winner: winner, status: 'finished' });
+            }
+        }
+
+        function onSnapEnd () {
+            board.position(game.fen());
+        }
+
+        // 3. Realtime Updates (අනිත් ප්ලේයර් move එකක් කළාම මේක auto වැඩ කරනවා)
+        gameRef.on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data && data.fen) {
+                game.load(data.fen);
+                board.position(data.fen);
+                document.getElementById('status').innerText = game.turn() === 'w' ? "White's Turn" : "Black's Turn";
+            }
+            if (data && data.winner) {
+                document.getElementById('status').innerText = "Game Over! Winner: " + data.winner;
+            }
+        });
+
+        // Board එක ලෑස්ති කිරීම
+        var config = {
+            draggable: true,
+            position: 'start',
+            orientation: playerColor, // ප්ලේයර් අනුව board එක කැරකෙනවා
+            onDragStart: onDragStart,
+            onDrop: onDrop,
+            onSnapEnd: onSnapEnd
+        };
+        board = Chessboard('myBoard', config);
+    </script>
+</body>
+</html>
