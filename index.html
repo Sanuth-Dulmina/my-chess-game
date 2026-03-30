@@ -3,13 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chess Game</title>
+    <title>Chess Game - Multiplayer</title>
     <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #1a1a1a; color: white; }
         #myBoard { width: 90vw; max-width: 400px; margin-bottom: 20px; border: 4px solid #333; }
         .info { padding: 15px; background: #2d2d2d; border-radius: 10px; text-align: center; min-width: 250px; border-bottom: 4px solid #00ffcc; }
         #status { font-weight: bold; color: #00ffcc; font-size: 1.2em; }
+        
+        .highlight-check {
+            box-shadow: inset 0 0 3px 3px red !important;
+            background-color: rgba(255, 0, 0, 0.6) !important;
+        }
     </style>
 </head>
 <body>
@@ -43,13 +48,24 @@
         const gameId = urlParams.get('gameId'); 
         const playerColor = urlParams.get('color') || 'white'; 
 
-        if (!gameId) {
-            document.getElementById('status').innerText = "Status: No Game ID provided";
-        }
-
         var board = null;
         var game = new Chess();
         var gameRef = db.ref('games/' + gameId);
+
+        function updateCheckStatus() {
+            $('#myBoard .square-55d63').removeClass('highlight-check');
+            if (game.in_check()) {
+                const turn = game.turn();
+                const squares = ['a8','b8','c8','d8','e8','f8','g8','h8','a7','b7','c7','d7','e7','f7','g7','h7','a6','b6','c6','d6','e6','f6','g6','h6','a5','b5','c5','d5','e5','f5','g5','h5','a4','b4','c4','d4','e4','f4','g4','h4','a3','b3','c3','d3','e3','f3','g3','h3','a2','b2','c2','d2','e2','f2','g2','h2','a1','b1','c1','d1','e1','f1','g1','h1'];
+                for (let i = 0; i < squares.length; i++) {
+                    const piece = game.get(squares[i]);
+                    if (piece && piece.type === 'k' && piece.color === turn) {
+                        $('#myBoard .square-' + squares[i]).addClass('highlight-check');
+                        break;
+                    }
+                }
+            }
+        }
 
         function onDragStart (source, piece, position, orientation) {
             if (game.game_over()) return false;
@@ -78,9 +94,32 @@
             if (data && data.fen) {
                 game.load(data.fen);
                 board.position(data.fen);
-                document.getElementById('status').innerText = game.turn() === 'w' ? "White's Turn" : "Black's Turn";
+                
+                let statusText = game.turn() === 'w' ? "White's Turn" : "Black's Turn";
+                
+                if (game.in_checkmate()) {
+                    const winner = game.turn() === 'w' ? "Black" : "White";
+                    statusText = "Checkmate! Winner: " + winner;
+                    
+                    gameRef.update({
+                        gameStatus: "finished",
+                        winner: winner
+                    });
+                    
+                    setTimeout(() => { alert("Checkmate! Winner: " + winner); }, 300);
+                } 
+                else if (game.in_draw()) {
+                    statusText = "Game Over - Draw!";
+                    gameRef.update({ gameStatus: "draw" });
+                } 
+                else if (game.in_check()) {
+                    statusText += " (Check!)";
+                }
+                
+                document.getElementById('status').innerText = statusText;
+                updateCheckStatus();
             } else if (gameId) {
-                gameRef.set({ fen: game.fen(), turn: 'w' });
+                gameRef.set({ fen: game.fen(), turn: 'w', gameStatus: 'active' });
             }
         });
 
