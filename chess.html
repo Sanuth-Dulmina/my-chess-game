@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chess - Tournament</title>
+    <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #121212; color: #fff; overflow: hidden; }
+        #myBoard { width: 85vw; max-width: 380px; margin-bottom: 10px; border: 3px solid #333; }
+        .info-panel { padding: 12px; background: #1e1e1e; border-radius: 12px; text-align: center; width: 280px; border-bottom: 4px solid #ff3366; }
+        #status { font-weight: 700; color: #ff3366; margin-bottom: 5px; font-size: 0.9em; }
+        .timer-display { font-size: 2.2em; font-weight: 700; color: #00ffcc; font-family: monospace; }
+        .strikes { font-size: .85em; color: #aaa; margin-top: 8px; }
+        .game-over { opacity: .4; pointer-events: none; }
+    </style>
+</head>
+<body>
+    <div id="myBoard"></div>
+    <div class="info-panel">
+        <div id="status">Connecting...</div>
+        <div id="timer" class="timer-display">30</div>
+        <div class="strikes">W: <span id="w-strikes">0</span>/3 | B: <span id="b-strikes">0</span>/3</div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
+
+    <script>
+        const conf = {
+            apiKey: "AIzaSyAeuBm7nwaQ06fg5qdUVa5yEf2gnGZp5FQ",
+            authDomain: "sigmarounder-j1o0wk.firebaseapp.com",
+            databaseURL: "https://sigmarounder-j1o0wk-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "sigmarounder-j1o0wk",
+            storageBucket: "sigmarounder-j1o0wk.firebasestorage.app",
+            messagingSenderId: "789721114924",
+            appId: "1:789721114924:web:5edd916cdfa3c503d0a489"
+        };
+        firebase.initializeApp(conf);
+        const rtdb = firebase.database(), store = firebase.firestore();
+        const params = new URLSearchParams(window.location.search);
+        const gId = params.get('gameId'), color = params.get('color') || 'white', uId = params.get('userId');
+        let board = null, game = new Chess(), timer = null, gRef = rtdb.ref('games/' + gId);
+
+        async function save(win, res) {
+            if (uId) try { await store.collection("games").add({ gameName: "Chess", gameId: gId, winner: win, endReason: res, userId: uId, timestamp: firebase.firestore.FieldValue.serverTimestamp(), finalFen: game.fen() }); } catch (e) { console.error(e); }
+        }
+
+        function tOut(turn, d) {
+            let ws = d.wStrikes || 0, bs = d.bStrikes || 0;
+            turn === 'w' ? ws++ : bs++;
+            if (ws >= 3 || bs >= 3) {
+                const w = ws >= 3 ? "black" : "white";
+                gRef.update({ gameStatus: 'finished', winner: w, statusMsg: w.toUpperCase() + " wins (Time Out)" });
+                save(w, "Timeout");
+            } else {
+                let n = turn === 'w' ? 'b' : 'w';
+                gRef.update({ turn: n, timeLeft: 30, wStrikes: ws, bStrikes: bs, statusMsg: (n === 'w' ? "White" : "Black") + "'s Turn" });
+            }
+        }
+
+        function sTimer() {
+            if (timer) clearInterval(timer);
+            timer = setInterval(() => {
+                gRef.once('value', s => {
+                    const d = s.val();
+                    if (!d || d.gameStatus === 'finished') return clearInterval(timer);
+                    if ((d.turn === 'w' && color === 'white') || (d.turn === 'b' && color === 'black')) {
+                        let t = (d.timeLeft || 30) - 1;
+                        t <= 0 ? tOut(d.turn, d) : gRef.update({ timeLeft: t });
+                    }
+                });
+            }, 1000);
+        }
+
+        function drop(src, tar) {
+            let m = game.move({ from: src, to: tar, promotion: 'q' });
+            if (!m) return 'snapback';
+            let u = { fen: game.fen(), turn: game.turn(), timeLeft: 30, statusMsg: (game.turn() === 'w' ? "White" : "Black") + "'s Turn" };
+            if (game.in_checkmate()) { u.gameStatus = 'finished'; u.winner = color; u.statusMsg = "Checkmate! " + color.toUpperCase() + " wins"; save(color, "Checkmate"); }
+            gRef.update(u);
+        }
+
+        gRef.on('value', s => {
+            const d = s.val();
+            if (!d) return gRef.set({ fen: 'start', turn: 'w', timeLeft: 30, wStrikes: 0, bStrikes: 0, gameStatus: 'active', statusMsg: "White's Turn" });
+            game.load(d.fen); board.position(d.fen);
+            $('#timer').text(d.timeLeft); $('#w-strikes').text(d.wStrikes || 0); $('#b-strikes').text(d.bStrikes || 0); $('#status').text(d.statusMsg);
+            if (d.gameStatus === 'finished') { clearInterval(timer); $('#myBoard').addClass('game-over'); } else if (!timer) sTimer();
+        });
+
+        board = Chessboard('myBoard', {
+            draggable: true, position: 'start', orientation: color,
+            pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
+            onDragStart: (s, p) => !game.game_over() && !((color === 'white' && p.search(/^b/) !== -1) || (color === 'black' && p.search(/^w/) !== -1) || (game.turn() === 'w' && color === 'black') || (game.turn() === 'b' && color === 'white')),
+            onDrop: drop, onSnapEnd: () => board.position(game.fen())
+        });
+    </script>
+</body>
+</html>
